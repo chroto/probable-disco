@@ -1,0 +1,96 @@
+#!/bin/env python3
+# vi: ft=python
+"""
+Report Generator
+----------------
+
+"""
+import http.client
+import csv
+import datetime
+
+from urllib.parse import urlsplit, urlunsplit
+from io import StringIO
+
+ALL_COMPANY_NAME_FILE = '/tmp/names.txt'
+COMPANIES_WITH_INC_NAMES_FILE = '/tmp/lines-with-inc.txt'
+TOTAL_EMPLOYEE_COUNT_FILE = '/tmp/employee_count.txt'
+FINAL_REPORT = '/tmp/final-report.txt'
+
+CURRENT_DATE = datetime.date.today().strftime('%m/%d/%y')
+
+def fetch_url(url):
+    """
+    Fetches a URL. Raises an error for non-200 responses
+
+    Returns a utf-8 encoded string
+    """
+    url_parts = urlsplit(url)
+    scheme = url_parts.scheme
+    host = url_parts.netloc
+    path = urlunsplit(['', '', url_parts.path, url_parts.query, url_parts.fragment])
+    if scheme == 'https':
+        conn = http.client.HTTPSConnection(host, timeout=15)
+    else:
+        conn = http.client.HTTPConnection(host, timeout=15)
+
+    conn.request("GET", path)
+    response = conn.getresponse()
+        
+    if response.status != 200:
+        location_header = response.getheader('location')
+        if location_header is not None:  # Redirect
+            return fetch_url(location_header)
+        raise RuntimeError(f"Non-200 response code fetching {url}. Response code is {response.status} - {response.reason}")
+    return response.read().decode('utf-8')
+
+def main():
+    """
+    Main entrypoint of program
+
+    No arguments
+
+    """
+
+    list_of_inc_companies = []
+    total_number_of_employees = 0
+    all_company_names = []
+    org_csv_string = fetch_url("https://github.com/datablist/sample-csv-files/raw/main/files/organizations/organizations-100.csv")
+    org_csv_reader = csv.DictReader(StringIO(org_csv_string), delimiter=",")
+    for row in org_csv_reader:
+        all_company_names.append(row['Name'])
+        total_number_of_employees += int(row['Number of employees'])
+        if 'Inc' in row['Name']:
+            list_of_inc_companies.append(row['Name'])
+
+
+    # Sorting company names required
+    all_company_names.sort()
+    with open(ALL_COMPANY_NAME_FILE, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(all_company_names))
+        f.write('\n')
+
+    # Sorting Inc companies required
+    list_of_inc_companies.sort()
+    with open(COMPANIES_WITH_INC_NAMES_FILE, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(list_of_inc_companies))
+        f.write('\n')
+
+    with open(TOTAL_EMPLOYEE_COUNT_FILE, 'w', encoding='utf-8') as f:
+        f.write(f'Total number of employees: {total_number_of_employees}\n')
+
+    myip = fetch_url("https://api.ipify.org/")
+
+    with open(FINAL_REPORT, 'w', encoding='utf-8') as f:
+        f.write(f"Report created on {CURRENT_DATE} from {myip}\n\n")
+        with open(TOTAL_EMPLOYEE_COUNT_FILE, 'r', encoding='utf-8') as emp_count_file:
+            f.write(emp_count_file.read())
+        f.write('\nCompanies that contain the word Inc:\n')
+        for company in list_of_inc_companies:
+            f.write(f'* {company}\n')
+        f.write('\nAll names, sorted:\n')
+        for company in all_company_names:
+            f.write(f'* {company}\n')
+
+if __name__ == "__main__":
+    main()
