@@ -12,19 +12,32 @@ import datetime
 from urllib.parse import urlsplit, urlunsplit
 from io import StringIO
 
+#
+# Globals
+#
 ALL_COMPANY_NAME_FILE = '/tmp/names.txt'
 COMPANIES_WITH_INC_NAMES_FILE = '/tmp/lines-with-inc.txt'
 TOTAL_EMPLOYEE_COUNT_FILE = '/tmp/employee_count.txt'
 FINAL_REPORT = '/tmp/final-report.txt'
 
+CSV_URL = "https://github.com/datablist/sample-csv-files/raw/main/files/organizations/organizations-100.csv"
+
+
 CURRENT_DATE = datetime.date.today().strftime('%m/%d/%y')
 
-def fetch_url(url):
+def fetch_url(url, redirects=0):
     """
     Fetches a URL. Raises an error for non-200 responses
 
+    Because we call this recursively for redirects, we also keep a redirect
+    count to keep track of how many redirects we've done. Above a threshold of
+    10, we raise an exception. This is to prevent redirect loops.
+
     Returns a utf-8 encoded string
     """
+    if redirects > 10:
+        raise RuntimeError("Too Many Redirects. Manually check the URL to see if there is an issue")
+
     url_parts = urlsplit(url)
     scheme = url_parts.scheme
     host = url_parts.netloc
@@ -40,8 +53,9 @@ def fetch_url(url):
     if response.status != 200:
         location_header = response.getheader('location')
         if location_header is not None:  # Redirect
-            return fetch_url(location_header)
-        raise RuntimeError(f"Non-200 response code fetching {url}. Response code is {response.status} - {response.reason}")
+            return fetch_url(location_header, redirects=redirects + 1)
+        raise RuntimeError(f"Non-200 response code fetching {url}. \
+                Response code is {response.status} - {response.reason}")
     return response.read().decode('utf-8')
 
 def main():
@@ -51,18 +65,30 @@ def main():
     No arguments
 
     """
-
+    # Initialize any variables
     list_of_inc_companies = []
     total_number_of_employees = 0
     all_company_names = []
-    org_csv_string = fetch_url("https://github.com/datablist/sample-csv-files/raw/main/files/organizations/organizations-100.csv")
+
+    # Fetch URL data we'll need for our report
+    try:
+        myip = fetch_url("https://api.ipify.org/")
+    except TimeoutError:  # I noticed in testing that api.ipify.org can sometimes be slow to respond
+        myip = fetch_url("https://ifconfig.me/")
+
+    org_csv_string = fetch_url(CSV_URL)
     org_csv_reader = csv.DictReader(StringIO(org_csv_string), delimiter=",")
+
+    # Process CSV
     for row in org_csv_reader:
         all_company_names.append(row['Name'])
         total_number_of_employees += int(row['Number of employees'])
         if 'Inc' in row['Name']:
             list_of_inc_companies.append(row['Name'])
 
+    #
+    # Begin writing sub-reports
+    #
 
     # Sorting company names required
     all_company_names.sort()
@@ -79,7 +105,9 @@ def main():
     with open(TOTAL_EMPLOYEE_COUNT_FILE, 'w', encoding='utf-8') as f:
         f.write(f'Total number of employees: {total_number_of_employees}\n')
 
-    myip = fetch_url("https://api.ipify.org/")
+    #
+    # Begin final report
+    #
 
     with open(FINAL_REPORT, 'w', encoding='utf-8') as f:
         f.write(f"Report created on {CURRENT_DATE} from {myip}\n\n")

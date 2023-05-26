@@ -2,7 +2,8 @@ FROM ubuntu:22.10
 
 # Install dependencies and clean up apt cache
 RUN apt update && \
-    apt install -y supervisor && \
+    apt install -y supervisor \
+        ca-certificates && \
     apt clean && \
     rm -rf /var/lib/apt/lists/*
 
